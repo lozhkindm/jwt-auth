@@ -125,7 +125,9 @@ class Lcobucci extends Provider implements JWT
                         break;
 
                     case RegisteredClaims::NOT_BEFORE:
-                        $builder->canOnlyBeUsedAfter($value);
+                        $time = new \DateTimeImmutable();
+                        $time = $time->setTimestamp($value);
+                        $builder->canOnlyBeUsedAfter($time);
                         break;
 
                     default:

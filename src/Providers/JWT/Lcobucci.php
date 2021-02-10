@@ -11,10 +11,10 @@
 
 namespace Tymon\JWTAuth\Providers\JWT;
 
+use DateTimeImmutable;
 use Exception;
 use Illuminate\Support\Collection;
-use Lcobucci\JWT\Builder;
-use Lcobucci\JWT\Parser;
+use Lcobucci\JWT\Configuration;
 use Lcobucci\JWT\Signer\Ecdsa;
 use Lcobucci\JWT\Signer\Ecdsa\Sha256 as ES256;
 use Lcobucci\JWT\Signer\Ecdsa\Sha384 as ES384;
@@ -22,11 +22,13 @@ use Lcobucci\JWT\Signer\Ecdsa\Sha512 as ES512;
 use Lcobucci\JWT\Signer\Hmac\Sha256 as HS256;
 use Lcobucci\JWT\Signer\Hmac\Sha384 as HS384;
 use Lcobucci\JWT\Signer\Hmac\Sha512 as HS512;
-use Lcobucci\JWT\Signer\Keychain;
+use Lcobucci\JWT\Signer\Key\InMemory;
 use Lcobucci\JWT\Signer\Rsa;
 use Lcobucci\JWT\Signer\Rsa\Sha256 as RS256;
 use Lcobucci\JWT\Signer\Rsa\Sha384 as RS384;
 use Lcobucci\JWT\Signer\Rsa\Sha512 as RS512;
+use Lcobucci\JWT\Token\RegisteredClaims;
+use Lcobucci\JWT\Validation\Constraint\SignedWith;
 use ReflectionClass;
 use Tymon\JWTAuth\Contracts\Providers\JWT;
 use Tymon\JWTAuth\Exceptions\JWTException;
@@ -35,42 +37,27 @@ use Tymon\JWTAuth\Exceptions\TokenInvalidException;
 class Lcobucci extends Provider implements JWT
 {
     /**
-     * The Builder instance.
-     *
-     * @var \Lcobucci\JWT\Builder
+     * @var \Lcobucci\JWT\Configuration
      */
-    protected $builder;
-
-    /**
-     * The Parser instance.
-     *
-     * @var \Lcobucci\JWT\Parser
-     */
-    protected $parser;
+    protected $configuration;
 
     /**
      * Create the Lcobucci provider.
      *
-     * @param  \Lcobucci\JWT\Builder  $builder
-     * @param  \Lcobucci\JWT\Parser  $parser
-     * @param  string  $secret
-     * @param  string  $algo
-     * @param  array  $keys
+     * @param string $secret
+     * @param string $algo
+     * @param array  $keys
      *
      * @return void
      */
-    public function __construct(
-        Builder $builder,
-        Parser $parser,
-        $secret,
-        $algo,
-        array $keys
-    ) {
+    public function __construct($secret, $algo, array $keys)
+    {
         parent::__construct($secret, $algo, $keys);
 
-        $this->builder = $builder;
-        $this->parser = $parser;
-        $this->signer = $this->getSigner();
+        $key = InMemory::plainText($secret);
+
+        $this->configuration = Configuration::forSymmetricSigner($this->getSigner(), $key);
+        $this->configuration->setValidationConstraints(new SignedWith($this->getSigner(), $key));
     }
 
     /**
@@ -93,51 +80,93 @@ class Lcobucci extends Provider implements JWT
     /**
      * Create a JSON Web Token.
      *
-     * @param  array  $payload
-     *
-     * @throws \Tymon\JWTAuth\Exceptions\JWTException
+     * @param array $payload
      *
      * @return string
+     * @throws \Tymon\JWTAuth\Exceptions\JWTException
+     *
      */
     public function encode(array $payload)
     {
         // Remove the signature on the builder instance first.
-        $this->builder->unsign();
+        // $this->configuration->builder()->unsign();
 
         try {
-            foreach ($payload as $key => $value) {
-                $this->builder->set($key, $value);
-            }
-            $this->builder->sign($this->signer, $this->getSigningKey());
-        } catch (Exception $e) {
-            throw new JWTException('Could not create token: '.$e->getMessage(), $e->getCode(), $e);
-        }
+            $builder = $this->configuration->builder();
 
-        return (string) $this->builder->getToken();
+            foreach ($payload as $key => $value) {
+                switch ($key) {
+                    case RegisteredClaims::SUBJECT:
+                        $builder->relatedTo($value);
+                        break;
+
+                    case RegisteredClaims::AUDIENCE:
+                        $builder->permittedFor($value);
+                        break;
+
+                    case RegisteredClaims::EXPIRATION_TIME:
+                        $time = new \DateTimeImmutable();
+                        $time = $time->setTimestamp($value);
+                        $builder->expiresAt($time);
+                        break;
+
+                    case RegisteredClaims::ID:
+                        $builder->identifiedBy($value);
+                        break;
+
+                    case RegisteredClaims::ISSUED_AT:
+                        $time = new \DateTimeImmutable();
+                        $time = $time->setTimestamp($value);
+                        $builder->issuedAt($time);
+                        break;
+
+                    case RegisteredClaims::ISSUER:
+                        $builder->issuedBy($value);
+                        break;
+
+                    case RegisteredClaims::NOT_BEFORE:
+                        $builder->canOnlyBeUsedAfter($value);
+                        break;
+
+                    default:
+                        $builder->withClaim($key, $value);
+                        break;
+                }
+            }
+
+            return $builder
+                ->getToken($this->configuration->signer(), $this->configuration->signingKey())
+                ->toString();
+        } catch (Exception $e) {
+            throw new JWTException('Could not create token: ' . $e->getMessage(), $e->getCode(), $e);
+        }
     }
 
     /**
      * Decode a JSON Web Token.
      *
-     * @param  string  $token
-     *
-     * @throws \Tymon\JWTAuth\Exceptions\JWTException
+     * @param string $token
      *
      * @return array
+     * @throws \Tymon\JWTAuth\Exceptions\JWTException
+     *
      */
     public function decode($token)
     {
         try {
-            $jwt = $this->parser->parse($token);
+            $jwt = $this->configuration->parser()->parse($token);
         } catch (Exception $e) {
-            throw new TokenInvalidException('Could not decode token: '.$e->getMessage(), $e->getCode(), $e);
+            throw new TokenInvalidException('Could not decode token: ' . $e->getMessage(), $e->getCode(), $e);
         }
 
-        if (! $jwt->verify($this->signer, $this->getVerificationKey())) {
+        if (! $this->configuration->validator()->validate($jwt, ...$this->configuration->validationConstraints())) {
             throw new TokenInvalidException('Token Signature could not be verified.');
         }
 
-        return (new Collection($jwt->getClaims()))->map(function ($claim) {
+        return (new Collection($jwt->claims()->all()))->map(function ($claim) {
+            if ($claim instanceof DateTimeImmutable) {
+                return $claim->getTimestamp();
+            }
             return is_object($claim) ? $claim->getValue() : $claim;
         })->toArray();
     }
@@ -145,9 +174,9 @@ class Lcobucci extends Provider implements JWT
     /**
      * Get the signer instance.
      *
+     * @return \Lcobucci\JWT\Signer
      * @throws \Tymon\JWTAuth\Exceptions\JWTException
      *
-     * @return \Lcobucci\JWT\Signer
      */
     protected function getSigner()
     {
@@ -163,7 +192,7 @@ class Lcobucci extends Provider implements JWT
      */
     protected function isAsymmetric()
     {
-        $reflect = new ReflectionClass($this->signer);
+        $reflect = new ReflectionClass($this->configuration->signer());
 
         return $reflect->isSubclassOf(Rsa::class) || $reflect->isSubclassOf(Ecdsa::class);
     }
@@ -174,7 +203,7 @@ class Lcobucci extends Provider implements JWT
     protected function getSigningKey()
     {
         return $this->isAsymmetric() ?
-            (new Keychain())->getPrivateKey($this->getPrivateKey(), $this->getPassphrase()) :
+            InMemory::plainText($this->getPublicKey(), $this->getPassphrase()) :
             $this->getSecret();
     }
 
@@ -184,7 +213,7 @@ class Lcobucci extends Provider implements JWT
     protected function getVerificationKey()
     {
         return $this->isAsymmetric() ?
-            (new Keychain())->getPublicKey($this->getPublicKey()) :
+            InMemory::plainText($this->getPublicKey()) :
             $this->getSecret();
     }
 }

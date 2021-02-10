@@ -17,6 +17,8 @@ use Yoast\PHPUnitPolyfills\TestCases\TestCase;
 
 abstract class AbstractTestCase extends TestCase
 {
+    use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
+
     /**
      * @var int
      */

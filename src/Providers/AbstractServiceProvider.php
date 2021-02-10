@@ -12,8 +12,6 @@
 namespace Tymon\JWTAuth\Providers;
 
 use Illuminate\Support\ServiceProvider;
-use Lcobucci\JWT\Builder as JWTBuilder;
-use Lcobucci\JWT\Parser as JWTParser;
 use Namshi\JOSE\JWS;
 use Tymon\JWTAuth\Blacklist;
 use Tymon\JWTAuth\Claims\Factory as ClaimFactory;
@@ -46,10 +44,10 @@ abstract class AbstractServiceProvider extends ServiceProvider
      * @var array
      */
     protected $middlewareAliases = [
-        'jwt.auth' => Authenticate::class,
-        'jwt.check' => Check::class,
+        'jwt.auth'    => Authenticate::class,
+        'jwt.check'   => Check::class,
         'jwt.refresh' => RefreshToken::class,
-        'jwt.renew' => AuthenticateAndRenew::class,
+        'jwt.renew'   => AuthenticateAndRenew::class,
     ];
 
     /**
@@ -167,8 +165,6 @@ abstract class AbstractServiceProvider extends ServiceProvider
     {
         $this->app->singleton('tymon.jwt.provider.jwt.lcobucci', function ($app) {
             return new Lcobucci(
-                new JWTBuilder(),
-                new JWTParser(),
                 $this->config('secret'),
                 $this->config('algo'),
                 $this->config('keys')
@@ -215,7 +211,7 @@ abstract class AbstractServiceProvider extends ServiceProvider
             );
 
             return $instance->setBlacklistEnabled((bool) $this->config('blacklist_enabled'))
-                            ->setPersistentClaims($this->config('persistent_claims'));
+                ->setPersistentClaims($this->config('persistent_claims'));
         });
     }
 
@@ -284,7 +280,7 @@ abstract class AbstractServiceProvider extends ServiceProvider
             $instance = new Blacklist($app['tymon.jwt.provider.storage']);
 
             return $instance->setGracePeriod($this->config('blacklist_grace_period'))
-                            ->setRefreshTTL($this->config('refresh_ttl'));
+                ->setRefreshTTL($this->config('refresh_ttl'));
         });
     }
 
@@ -314,7 +310,7 @@ abstract class AbstractServiceProvider extends ServiceProvider
             $app->refresh('request', $factory, 'setRequest');
 
             return $factory->setTTL($this->config('ttl'))
-                           ->setLeeway($this->config('leeway'));
+                ->setLeeway($this->config('leeway'));
         });
     }
 
@@ -348,8 +344,8 @@ abstract class AbstractServiceProvider extends ServiceProvider
     /**
      * Helper to get the config values.
      *
-     * @param  string  $key
-     * @param  string  $default
+     * @param string $key
+     * @param string $default
      *
      * @return mixed
      */
@@ -361,7 +357,7 @@ abstract class AbstractServiceProvider extends ServiceProvider
     /**
      * Get an instantiable configuration instance.
      *
-     * @param  string  $key
+     * @param string $key
      *
      * @return mixed
      */
